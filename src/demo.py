@@ -27,7 +27,7 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--host", type=str, help="service host address")
     parser.add_argument("--port", type=int, help="service host port")
-    parser.add_argument("--config", type=str, default="config/chat_with_openai_compatible_bailian_cosyvoice_musetalk.yaml", help="config file to use")
+    parser.add_argument("--config", type=str, default="config/chat_with_openai_compatible_bailian_cosyvoice_musetalk.yaml", help="config file to use (try config/chat_with_cosyvoice2_0.5b.yaml for CosyVoice2-0.5B local model)")
     parser.add_argument("--env", type=str, default="default", help="environment to use in config file")
     return parser.parse_args()
 

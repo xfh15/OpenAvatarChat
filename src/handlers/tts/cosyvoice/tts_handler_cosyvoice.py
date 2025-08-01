@@ -27,6 +27,7 @@ from engine_utils.directory_info import DirectoryInfo
 
 class TTSConfig(HandlerBaseConfigModel, BaseModel):
     model_name: str = Field(default=None)
+    model_type: str = Field(default="auto", description="Model type: 'cosyvoice', 'cosyvoice2', or 'auto' for automatic detection")
     api_key: str = Field(default=None)  # Field(default=os.getenv("DASHSCOPE_API_KEY"))
     api_url: str = Field(default=None)
     ref_audio_path: str = Field(default=None)
