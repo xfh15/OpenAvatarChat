@@ -31,6 +31,7 @@ class TTSCosyVoiceProcessor(spawn_context.Process):
         self.handler_root = handler_root
         self.model = None
         self.model_name = config.model_name
+        self.model_type = getattr(config, 'model_type', 'auto')
         self.api_url = config.api_url
         self.spk_id = config.spk_id
         self.ref_audio_text = config.ref_audio_text
@@ -57,13 +58,29 @@ class TTSCosyVoiceProcessor(spawn_context.Process):
             sys.path.append(os.path.join(self.handler_root, 'CosyVoice', 'third_party', 'Matcha-TTS'))
             from handlers.tts.cosyvoice.CosyVoice.cosyvoice.utils.file_utils import load_wav
             from handlers.tts.cosyvoice.CosyVoice.cosyvoice.cli.cosyvoice import CosyVoice, CosyVoice2
-            try:
+            
+            # Load model based on explicit model_type or auto-detect
+            if self.model_type.lower() == "cosyvoice":
+                logger.info(f"Loading CosyVoice model: {self.model_name}")
                 self.model = CosyVoice(model_dir=self.model_name)
-            except Exception:
+            elif self.model_type.lower() == "cosyvoice2":
+                logger.info(f"Loading CosyVoice2 model: {self.model_name}")
+                self.model = CosyVoice2(model_dir=self.model_name)
+            else:  # auto mode
+                logger.info(f"Auto-detecting model type for: {self.model_name}")
                 try:
-                    self.model = CosyVoice2(model_dir=self.model_name)
-                except Exception:
-                    raise TypeError('no valid model_type!')
+                    logger.info("Trying CosyVoice first...")
+                    self.model = CosyVoice(model_dir=self.model_name)
+                    logger.info("Successfully loaded with CosyVoice")
+                except Exception as e:
+                    logger.info(f"CosyVoice failed: {e}, trying CosyVoice2...")
+                    try:
+                        self.model = CosyVoice2(model_dir=self.model_name)
+                        logger.info("Successfully loaded with CosyVoice2")
+                    except Exception as e2:
+                        logger.error(f"Both CosyVoice and CosyVoice2 failed. CosyVoice error: {e}, CosyVoice2 error: {e2}")
+                        raise TypeError('No valid model_type! Both CosyVoice and CosyVoice2 failed to load.')
+            
             self.model.sample_rate = self.sample_rate
             if self.ref_audio_path:
                 self.ref_audio_buffer = load_wav(self.ref_audio_path, self.sample_rate)

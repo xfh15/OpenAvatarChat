@@ -25,6 +25,11 @@
 
 ### 更新日志
 
+- [2025.01.08] ⭐️⭐️⭐️ CosyVoice2-0.5B本地模型支持:
+  - 新增对CosyVoice2-0.5B本地模型的显式支持
+  - 添加model_type配置选项，支持"auto"、"cosyvoice"、"cosyvoice2"三种模式
+  - 增强模型加载错误处理和日志记录
+  - 提供专用配置文件`chat_with_cosyvoice2_0.5b.yaml`
 - [2025.06.12] ⭐️⭐️⭐️ 版本 0.4.1发布:
   - 增加对[MuseTalk](https://github.com/TMElyralab/MuseTalk)数字人的支持，支持自定义形象（底版视频自定义）
   - 50个LiteAvatar新形象发布，丰富各种职业角色，请见[LiteAvatarGallery](https://modelscope.cn/models/HumanAIGC-Engineering/LiteAvatarGallery)

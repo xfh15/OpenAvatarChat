@@ -33,13 +33,29 @@ if __name__ == '__main__':
     from src.third_party.CosyVoice.cosyvoice.cli.cosyvoice import CosyVoice, CosyVoice2
     model = None
     model_name = 'iic/CosyVoice-300M-SFT'
-    try:
+    model_type = 'auto'  # Can be 'auto', 'cosyvoice', 'cosyvoice2'
+    
+    # Test model loading with different types
+    if model_type.lower() == "cosyvoice":
+        print(f"Loading CosyVoice model: {model_name}")
         model = CosyVoice(model_dir=model_name)
-    except Exception:
+    elif model_type.lower() == "cosyvoice2":
+        print(f"Loading CosyVoice2 model: {model_name}")
+        model = CosyVoice2(model_dir=model_name)
+    else:  # auto mode
+        print(f"Auto-detecting model type for: {model_name}")
         try:
-            model = CosyVoice2(model_dir=model_name)
-        except Exception:
-            raise TypeError('no valid model_type!')
+            print("Trying CosyVoice first...")
+            model = CosyVoice(model_dir=model_name)
+            print("Successfully loaded with CosyVoice")
+        except Exception as e:
+            print(f"CosyVoice failed: {e}, trying CosyVoice2...")
+            try:
+                model = CosyVoice2(model_dir=model_name)
+                print("Successfully loaded with CosyVoice2")
+            except Exception as e2:
+                print(f"Both failed. CosyVoice error: {e}, CosyVoice2 error: {e2}")
+                raise TypeError('No valid model_type! Both CosyVoice and CosyVoice2 failed to load.')
     res = model.inference_sft('说句话呀，白色的咖啡杯放在桌子上。白色的咖啡杯放在桌子上。', '中文女')
     print(res)
     for item in res:
