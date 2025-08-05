@@ -20,9 +20,10 @@ name_dict = {
 
 
 def filter_text(text):
-    pattern = r"[^a-zA-Z0-9\u4e00-\u9fff,.\~!?，。！？ ]"  # 匹配不在范围内的字符
-    filtered_text = re.sub(pattern, "", text)
-    return filtered_text
+    # pattern = r"[^a-zA-Z0-9\u4e00-\u9fff,.\~!?，。！？ ]"  # 匹配不在范围内的字符
+    # filtered_text = re.sub(pattern, "", text)
+    # return filtered_text
+    return text
 
 
 class ChatHistory:

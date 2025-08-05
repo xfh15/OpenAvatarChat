@@ -34,6 +34,7 @@ class TTSConfig(HandlerBaseConfigModel, BaseModel):
     spk_id: str = Field(default=None)
     sample_rate: int = Field(default=24000)
     process_num: int = Field(default=1)
+    save_audio_path: str = Field(default=None)
 
 
 @dataclass
@@ -118,8 +119,12 @@ class HandlerTTS(HandlerBase, ABC):
                                                 self.tts_input_queue, self.tts_output_queue)
                 process.start()
                 self.multi_process.append(process)
-            self.tts_output_queue.get()
-
+            for _ in self.multi_process:
+                output = self.tts_output_queue.get()
+                if output.get('key') != 'cosyvoice_ready':
+                    # This should not happen, but as a safeguard
+                    self.tts_output_queue.put(output)
+                    
         def consumer(task_queue_map: dict[str, deque], tts_output_queue: Queue):
             while True:
                 logger.debug(f"tts output {len(task_queue_map.keys()), tts_output_queue.qsize()}")
@@ -131,6 +136,8 @@ class HandlerTTS(HandlerBase, ABC):
                     continue
                 logger.debug(f'output {output}')
                 key = output['key']
+                if key == 'cosyvoice_ready':
+                    continue
                 audio = output['tts_speech']
                 session_id = output['session_id']
                 taskDeque = task_queue_map.get(session_id)
@@ -197,9 +204,10 @@ class HandlerTTS(HandlerBase, ABC):
         self.task_queue_map[context.session_id] = context.task_queue
 
     def filter_text(self, text):
-        pattern = r"[^a-zA-Z0-9\u4e00-\u9fff,.\~!?，。！？ ]"  # 匹配不在范围内的字符
-        filtered_text = re.sub(pattern, "", text)
-        return filtered_text
+        # pattern = r"[^a-zA-Z0-9\u4e00-\u9fff,.\~!?，。！？ ]"  # 匹配不在范围内的字符
+        # filtered_text = re.sub(pattern, "", text)
+        # return filtered_text
+        return text
 
     def handle(self, context: HandlerContext, inputs: ChatData,
                output_definitions: Dict[ChatDataType, HandlerDataInfo]):

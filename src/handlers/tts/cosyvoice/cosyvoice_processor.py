@@ -2,6 +2,9 @@ from dataclasses import Field, dataclass, field
 import logging
 from torch.multiprocessing import Process, Queue
 import torch.multiprocessing as mp
+import torch
+import torchaudio
+from datetime import datetime
 
 import os
 import sys
@@ -23,7 +26,7 @@ from engine_utils.directory_info import DirectoryInfo
 #     ref_audio_text: str = field(default=None)
 #     ref_audio_buffer: np.ndarray = None
 #     sample_rate: int = field(default=24000)
-spawn_context = mp.get_context('spawn')   
+spawn_context = mp.get_context('spawn')
 
 class TTSCosyVoiceProcessor(spawn_context.Process):
     def __init__(self, handler_root: str, config: any, input_queue: Queue, output_queue: Queue):
@@ -38,6 +41,7 @@ class TTSCosyVoiceProcessor(spawn_context.Process):
         self.ref_audio_buffer = None
         self.sample_rate = config.sample_rate
         self.api_key = config.api_key
+        self.save_audio_path = "./tts_audio"
 
         self.input_queue = input_queue
         self.output_queue = output_queue
@@ -58,34 +62,30 @@ class TTSCosyVoiceProcessor(spawn_context.Process):
             from handlers.tts.cosyvoice.CosyVoice.cosyvoice.utils.file_utils import load_wav
             from handlers.tts.cosyvoice.CosyVoice.cosyvoice.cli.cosyvoice import CosyVoice, CosyVoice2
             try:
-                self.model = CosyVoice(model_dir=self.model_name)
+                self.model = CosyVoice2(model_dir=self.model_name, load_jit=True, load_trt=True, fp16=True)
             except Exception:
                 try:
-                    self.model = CosyVoice2(model_dir=self.model_name)
+                    self.model = CosyVoice(model_dir=self.model_name)
                 except Exception:
                     raise TypeError('no valid model_type!')
             self.model.sample_rate = self.sample_rate
             if self.ref_audio_path:
                 self.ref_audio_buffer = load_wav(self.ref_audio_path, self.sample_rate)
                 self.ref_audio_text = self.ref_audio_text
-            init_text = '欢迎来到中国2025'
+            init_text = "おはようございます"
             response = None
             if self.ref_audio_buffer is not None:
                 response = self.model.inference_zero_shot(
-                    init_text, self.ref_audio_text, self.ref_audio_buffer, True)
+                    init_text, self.ref_audio_text, self.ref_audio_buffer, stream=True)
             elif self.spk_id:
-                response = self.model.inference_sft(init_text, self.spk_id)
+                response = self.model.inference_instruct2(init_text, self.spk_id, self.ref_audio_buffer, stream=True)
             else:
                 logger.error('cosyvoice need a ref_audio or spk_id')
                 return
             if response is not None:
-                for tts_speech in response:
-                    self.output_queue.put({
-                        'key': '',
-                        'tts_speech': tts_speech,
-                        'session_id': ''
-                    })
-                    logger.debug('tts test')
+                for _ in response:
+                    pass  # Consume generator for warmup
+            self.output_queue.put({'key': 'cosyvoice_ready', 'tts_speech': None, 'session_id': None})
         elif self.api_key is not None:
             raise TypeError('api_key not support yet')
         logger.info('tts processor started')
@@ -140,28 +140,44 @@ class TTSCosyVoiceProcessor(spawn_context.Process):
                 response = None
                 if self.model:
                     if self.ref_audio_buffer is not None:
+                        logger.info(f"================ {input_text}")
                         response = self.model.inference_zero_shot(
-                            input_text, self.ref_audio_text, self.ref_audio_buffer, True)
+                            input_text, self.ref_audio_text, self.ref_audio_buffer, stream=True)
                     elif self.spk_id:
-                        response = self.model.inference_sft(input_text, self.spk_id, True)
+                        response = self.model.inference_instruct2(input_text, self.spk_id, self.ref_audio_buffer, stream=True)
                     else:
                         logger.error('cosyvoice need a ref_audio or spk_id')
                         return
 
-                for tts_speech in response:
-                    tts_audio = tts_speech['tts_speech'].numpy()
-                    logger.debug(f'tts sample rate {self.model.sample_rate}')
-                    tts_audio = tts_audio  # librosa.resample(tts_audio, orig_sr=self.model.sample_rate, target_sr=24000)
-                    # tts_audio = torchaudio.transforms.Resample(orig_freq=22050, new_freq=24000)(tts_audio)
-                    if self.dump_audio:
-                        dump_audio = tts_audio
-                        self.audio_dump_file.write(dump_audio.tobytes())
-                    output = {
-                        'key': key,
-                        'tts_speech': tts_audio,
-                        'session_id': session_id
-                    }
-                    self.output_queue.put(output)
+                if response:
+                    audio_chunks = []
+                    for i, tts_speech in enumerate(response):
+                        tts_audio = tts_speech['tts_speech']
+                        tts_audio_numpy = tts_audio.numpy()
+                        audio_chunks.append(tts_audio_numpy)
+                        logger.debug(f'tts sample rate {self.model.sample_rate}')
+                        
+                        if self.dump_audio:
+                            dump_audio = tts_audio_numpy
+                            self.audio_dump_file.write(dump_audio.tobytes())
+                        output = {
+                            'key': key,
+                            'tts_speech': tts_audio_numpy,
+                            'session_id': session_id
+                        }
+                        self.output_queue.put(output)
+
+                    if self.save_audio_path and audio_chunks:
+                        full_audio_numpy = np.concatenate(audio_chunks, axis=1)
+                        full_audio_tensor = torch.from_numpy(full_audio_numpy)
+                        
+                        os.makedirs(self.save_audio_path, exist_ok=True)
+                        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+                        filename = f"tts_{timestamp}.wav"
+                        save_path = os.path.join(self.save_audio_path, filename)
+                        
+                        torchaudio.save(save_path, full_audio_tensor, self.model.sample_rate)
+                        logger.info(f"Saved synthesized audio to {save_path}")
             output = {
                 'key': key,
                 'tts_speech': None,
