@@ -144,7 +144,29 @@ class HandlerTTS(HandlerBase, ABC):
                     
                     if audio_chunks:
                         audio_data = b''.join(audio_chunks)
-                        output_audio = librosa.load(io.BytesIO(audio_data), sr=self.sample_rate)[0]
+                        # 尝试多种音频格式解析方式
+                        try:
+                            # 首先尝试作为标准音频文件格式解析
+                            output_audio = librosa.load(io.BytesIO(audio_data), sr=self.sample_rate)[0]
+                        except Exception as format_error:
+                            logger.warning(f"Failed to load as standard audio format: {format_error}")
+                            try:
+                                # 尝试作为原始PCM数据解析
+                                audio_array = np.frombuffer(audio_data, dtype=np.float32)
+                                if len(audio_array) == 0:
+                                    # 尝试int16格式
+                                    audio_array = np.frombuffer(audio_data, dtype=np.int16).astype(np.float32) / 32767.0
+                                
+                                # 如果采样率不匹配，进行重采样
+                                if len(audio_array) > 0:
+                                    output_audio = audio_array
+                                else:
+                                    logger.error("Unable to parse audio data as PCM")
+                                    return None
+                            except Exception as pcm_error:
+                                logger.error(f"Failed to parse as PCM data: {pcm_error}")
+                                return None
+                        
                         output_audio = output_audio[np.newaxis, ...]
                         return output_audio
                     else:
@@ -158,7 +180,21 @@ class HandlerTTS(HandlerBase, ABC):
                 response = requests.post(self.api_url, json=payload, timeout=30)
                 if response.status_code == 200:
                     audio_data = response.content
-                    output_audio = librosa.load(io.BytesIO(audio_data), sr=self.sample_rate)[0]
+                    try:
+                        output_audio = librosa.load(io.BytesIO(audio_data), sr=self.sample_rate)[0]
+                    except Exception as format_error:
+                        logger.warning(f"Failed to load as standard audio format: {format_error}")
+                        try:
+                            # 尝试作为原始PCM数据解析
+                            audio_array = np.frombuffer(audio_data, dtype=np.float32)
+                            if len(audio_array) == 0:
+                                # 尝试int16格式
+                                audio_array = np.frombuffer(audio_data, dtype=np.int16).astype(np.float32) / 32767.0
+                            output_audio = audio_array
+                        except Exception as pcm_error:
+                            logger.error(f"Failed to parse audio data: {pcm_error}")
+                            return None
+                    
                     output_audio = output_audio[np.newaxis, ...]
                     return output_audio
                 else:
