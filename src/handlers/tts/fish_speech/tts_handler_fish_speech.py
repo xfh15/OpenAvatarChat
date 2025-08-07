@@ -18,6 +18,8 @@ from chat_engine.data_models.chat_data_type import ChatDataType
 from chat_engine.contexts.session_context import SessionContext
 from chat_engine.data_models.runtime_data.data_bundle import DataBundle, DataBundleDefinition, DataBundleEntry
 from engine_utils.directory_info import DirectoryInfo
+import threading
+import queue
 
 
 class TTSConfig(HandlerBaseConfigModel, BaseModel):
@@ -36,6 +38,8 @@ class TTSContext(HandlerContext):
         self.dump_audio = False
         self.audio_dump_file = None
         self.ref_tokens = None
+        self.streaming_queue = None
+        self.streaming_thread = None
 
 
 class HandlerTTS(HandlerBase, ABC):
@@ -125,6 +129,64 @@ class HandlerTTS(HandlerBase, ABC):
         # return filtered_text
         return text  # 目前不进行过滤，直接返回原文本
 
+    def synthesize_speech_streaming(self, text: str, context: TTSContext, output_definition, speech_id: str):
+        """流式语音合成 - 参考Bailian TTS的实时输出方式"""
+        try:
+            payload = {
+                "text": text,
+                "references": [{"audio": context.ref_tokens, "text": "こんにちは、私の名前はヒロですね、よろしくお願いますね"}],
+                "streaming": True
+            }
+            
+            response = requests.post(self.api_url, json=payload, stream=True, timeout=30)
+            if response.status_code == 200:
+                audio_buffer = b''
+                chunk_size_threshold = self.sample_rate * 2  # 1秒的音频数据阈值
+                
+                for chunk in response.iter_content(chunk_size=8192):
+                    if chunk:
+                        audio_buffer += chunk
+                        
+                        # 当积累足够的音频数据时，立即输出
+                        if len(audio_buffer) >= chunk_size_threshold:
+                            try:
+                                # 尝试解析为PCM数据
+                                output_audio = np.frombuffer(audio_buffer, dtype=np.int16).astype(np.float32) / 32767.0
+                                output_audio = output_audio[np.newaxis, ...]
+                                
+                                # 立即输出音频块
+                                output = DataBundle(output_definition)
+                                output.set_main_data(output_audio)
+                                output.add_meta("avatar_speech_end", False)
+                                output.add_meta("speech_id", speech_id)
+                                context.submit_data(output)
+                                
+                                audio_buffer = b''  # 清空缓冲区
+                                
+                            except Exception as e:
+                                logger.error(f"Failed to parse streaming audio chunk: {e}")
+                
+                # 处理剩余的音频数据
+                if audio_buffer:
+                    try:
+                        output_audio = np.frombuffer(audio_buffer, dtype=np.int16).astype(np.float32) / 32767.0
+                        output_audio = output_audio[np.newaxis, ...]
+                        
+                        output = DataBundle(output_definition)
+                        output.set_main_data(output_audio)
+                        output.add_meta("avatar_speech_end", False)
+                        output.add_meta("speech_id", speech_id)
+                        context.submit_data(output)
+                        
+                    except Exception as e:
+                        logger.error(f"Failed to parse final audio chunk: {e}")
+                        
+            else:
+                logger.error(f"FishSpeech streaming API failed with status {response.status_code}: {response.text}")
+                
+        except Exception as e:
+            logger.error(f"Error in streaming synthesis: {e}")
+
     def synthesize_speech(self, text: str, context: TTSContext) -> Optional[np.ndarray]:
         """调用FishSpeech API生成语音"""
         try:
@@ -133,73 +195,28 @@ class HandlerTTS(HandlerBase, ABC):
                 "references": [{"audio": context.ref_tokens, "text": "こんにちは、私の名前はヒロですね、よろしくお願いますね"}],
                 "streaming": self.streaming
             }
-            if self.streaming:
-                # 流式模式
-                response = requests.post(self.api_url, json=payload, stream=True, timeout=30)
-                if response.status_code == 200:
-                    audio_chunks = []
-                    for chunk in response.iter_content(chunk_size=8192):
-                        if chunk:
-                            audio_chunks.append(chunk)
-                    
-                    if audio_chunks:
-                        audio_data = b''.join(audio_chunks)
-                        # 尝试多种音频格式解析方式
-                        try:
-                            # 首先尝试作为标准音频文件格式解析
-                            output_audio = librosa.load(io.BytesIO(audio_data), sr=self.sample_rate)[0]
-                        except Exception as format_error:
-                            logger.warning(f"Failed to load as standard audio format: {format_error}")
-                            try:
-                                # 尝试作为原始PCM数据解析
-                                audio_array = np.frombuffer(audio_data, dtype=np.float32)
-                                if len(audio_array) == 0:
-                                    # 尝试int16格式
-                                    audio_array = np.frombuffer(audio_data, dtype=np.int16).astype(np.float32) / 32767.0
-                                
-                                # 如果采样率不匹配，进行重采样
-                                if len(audio_array) > 0:
-                                    output_audio = audio_array
-                                else:
-                                    logger.error("Unable to parse audio data as PCM")
-                                    return None
-                            except Exception as pcm_error:
-                                logger.error(f"Failed to parse as PCM data: {pcm_error}")
-                                return None
-                        
-                        output_audio = output_audio[np.newaxis, ...]
-                        return output_audio
-                    else:
-                        logger.warning("Received empty streaming response")
-                        return None
-                else:
-                    logger.error(f"FishSpeech streaming API request failed with status {response.status_code}: {response.text}")
-                    return None
-            else:
-                # 非流式模式
-                response = requests.post(self.api_url, json=payload, timeout=30)
-                if response.status_code == 200:
-                    audio_data = response.content
-                    try:
-                        output_audio = librosa.load(io.BytesIO(audio_data), sr=self.sample_rate)[0]
-                    except Exception as format_error:
-                        logger.warning(f"Failed to load as standard audio format: {format_error}")
-                        try:
-                            # 尝试作为原始PCM数据解析
-                            audio_array = np.frombuffer(audio_data, dtype=np.float32)
-                            if len(audio_array) == 0:
-                                # 尝试int16格式
-                                audio_array = np.frombuffer(audio_data, dtype=np.int16).astype(np.float32) / 32767.0
-                            output_audio = audio_array
-                        except Exception as pcm_error:
-                            logger.error(f"Failed to parse audio data: {pcm_error}")
-                            return None
-                    
+            
+            # 非流式模式
+            response = requests.post(self.api_url, json=payload, timeout=30)
+            if response.status_code == 200:
+                audio_data = response.content
+                try:
+                    output_audio = librosa.load(io.BytesIO(audio_data), sr=self.sample_rate)[0]
                     output_audio = output_audio[np.newaxis, ...]
                     return output_audio
-                else:
-                    logger.error(f"FishSpeech API request failed with status {response.status_code}: {response.text}")
-                    return None
+                except Exception as e:
+                    logger.error(f"Failed to load audio with librosa: {e}")
+                    # 尝试其他解析方式
+                    try:
+                        output_audio = np.frombuffer(audio_data, dtype=np.int16).astype(np.float32) / 32767.0
+                        output_audio = output_audio[np.newaxis, ...]
+                        return output_audio
+                    except Exception as e2:
+                        logger.error(f"Failed to parse as PCM data: {e2}")
+                        return None
+            else:
+                logger.error(f"FishSpeech API request failed with status {response.status_code}: {response.text}")
+                return None
                 
         except Exception as e:
             logger.error(f"Error calling FishSpeech API: {e}")
@@ -236,23 +253,41 @@ class HandlerTTS(HandlerBase, ABC):
                         continue
                     logger.info(f'Processing sentence: {sentence}')
                     
-                    output_audio = self.synthesize_speech(sentence.strip(), context)
+                    if self.streaming:
+                        # 流式模式：异步处理以实现实时输出
+                        def stream_process():
+                            self.synthesize_speech_streaming(sentence.strip(), context, output_definition, speech_id)
+                        
+                        stream_thread = threading.Thread(target=stream_process)
+                        stream_thread.start()
+                    else:
+                        # 非流式模式
+                        output_audio = self.synthesize_speech(sentence.strip(), context)
+                        if output_audio is not None:
+                            output = DataBundle(output_definition)
+                            output.set_main_data(output_audio)
+                            output.add_meta("avatar_speech_end", False)
+                            output.add_meta("speech_id", speech_id)
+                            context.submit_data(output)
+        else:
+            logger.info(f'Processing last sentence: {context.input_text}')
+            if context.input_text is not None and len(context.input_text.strip()) > 0:
+                if self.streaming:
+                    # 流式模式：处理最后一句
+                    def stream_final_process():
+                        self.synthesize_speech_streaming(context.input_text.strip(), context, output_definition, speech_id)
+                    
+                    stream_thread = threading.Thread(target=stream_final_process)
+                    stream_thread.start()
+                else:
+                    # 非流式模式
+                    output_audio = self.synthesize_speech(context.input_text.strip(), context)
                     if output_audio is not None:
                         output = DataBundle(output_definition)
                         output.set_main_data(output_audio)
                         output.add_meta("avatar_speech_end", False)
                         output.add_meta("speech_id", speech_id)
                         context.submit_data(output)
-        else:
-            logger.info(f'Processing last sentence: {context.input_text}')
-            if context.input_text is not None and len(context.input_text.strip()) > 0:
-                output_audio = self.synthesize_speech(context.input_text.strip(), context)
-                if output_audio is not None:
-                    output = DataBundle(output_definition)
-                    output.set_main_data(output_audio)
-                    output.add_meta("avatar_speech_end", False)
-                    output.add_meta("speech_id", speech_id)
-                    context.submit_data(output)
                     
             context.input_text = ''
             output = DataBundle(output_definition)
