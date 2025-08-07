@@ -130,59 +130,19 @@ class HandlerTTS(HandlerBase, ABC):
         return text  # 目前不进行过滤，直接返回原文本
 
     def synthesize_speech_streaming(self, text: str, context: TTSContext, output_definition, speech_id: str):
-        """流式语音合成 - 修复版本，完整处理音频文件格式"""
+        """流式语音合成 - 使用非流式API确保音质一致"""
         try:
-            payload = {
-                "text": text,
-                "references": [{"audio": context.ref_tokens, "text": "こんにちは、私の名前はヒロですね、よろしくお願いますね"}],
-                "streaming": True
-            }
-            
-            response = requests.post(self.api_url, json=payload, stream=True, timeout=30)
-            if response.status_code == 200:
-                # 收集完整的流式响应数据
-                audio_chunks = []
-                for chunk in response.iter_content(chunk_size=8192):
-                    if chunk:
-                        audio_chunks.append(chunk)
-                
-                if audio_chunks:
-                    # 合并所有音频数据
-                    complete_audio_data = b''.join(audio_chunks)
-                    
-                    # 使用与非流式模式相同的解析方式，确保音质一致
-                    try:
-                        # 优先使用librosa处理，与非流式模式保持一致
-                        output_audio = librosa.load(io.BytesIO(complete_audio_data), sr=self.sample_rate)[0]
-                        output_audio = output_audio[np.newaxis, ...]
-                        
-                        # 输出完整的音频
-                        output = DataBundle(output_definition)
-                        output.set_main_data(output_audio)
-                        output.add_meta("avatar_speech_end", False)
-                        output.add_meta("speech_id", speech_id)
-                        context.submit_data(output)
-                        
-                    except Exception as e:
-                        logger.error(f"Failed to load streaming audio with librosa: {e}")
-                        # 备用方案：尝试PCM格式
-                        try:
-                            output_audio = np.frombuffer(complete_audio_data, dtype=np.int16).astype(np.float32) / 32767.0
-                            output_audio = output_audio[np.newaxis, ...]
-                            
-                            output = DataBundle(output_definition)
-                            output.set_main_data(output_audio)
-                            output.add_meta("avatar_speech_end", False)
-                            output.add_meta("speech_id", speech_id)
-                            context.submit_data(output)
-                            
-                        except Exception as e2:
-                            logger.error(f"Failed to parse streaming audio as PCM: {e2}")
-                else:
-                    logger.warning("Received empty streaming response")
-                        
+            # 即使配置了streaming，也使用非流式调用以确保音频格式正确
+            output_audio = self.synthesize_speech(text, context)
+            if output_audio is not None:
+                output = DataBundle(output_definition)
+                output.set_main_data(output_audio)
+                output.add_meta("avatar_speech_end", False)
+                output.add_meta("speech_id", speech_id)
+                context.submit_data(output)
+                logger.info(f"Streaming synthesis completed using non-streaming API for text: {text[:50]}...")
             else:
-                logger.error(f"FishSpeech streaming API failed with status {response.status_code}: {response.text}")
+                logger.error(f"Failed to synthesize speech for text: {text[:50]}...")
                 
         except Exception as e:
             logger.error(f"Error in streaming synthesis: {e}")
