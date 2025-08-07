@@ -116,9 +116,10 @@ class HandlerTTS(HandlerBase, ABC):
             logger.error(f"Failed to connect to FishSpeech TTS API: {e}")
 
     def filter_text(self, text):
-        pattern = r"[^a-zA-Z0-9\u4e00-\u9fff,.\~!?，。！？ ]"  # 匹配不在范围内的字符
-        filtered_text = re.sub(pattern, "", text)
-        return filtered_text
+        # pattern = r"[^a-zA-Z0-9\u4e00-\u9fff,.\~!?，。！？ ]"  # 匹配不在范围内的字符
+        # filtered_text = re.sub(pattern, "", text)
+        # return filtered_text
+        return text  # 目前不进行过滤，直接返回原文本
 
     def synthesize_speech(self, text: str, context: TTSContext) -> Optional[np.ndarray]:
         """调用FishSpeech API生成语音"""
