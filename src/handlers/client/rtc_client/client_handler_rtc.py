@@ -186,7 +186,7 @@ class ClientHandlerRtc(ClientHandlerBase):
                     rtc_configuration=turn_entity.rtc_configuration if turn_entity is not None else None,
                     pulse_color="rgb(35, 157, 225)",
                     icon_button_color="rgb(35, 157, 225)",
-                    video_chat=False,
+                    # video_chat=False
                     **extra_rtc_params
                 )
             webrtc.stream(

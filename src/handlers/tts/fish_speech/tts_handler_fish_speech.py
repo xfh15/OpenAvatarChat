@@ -4,6 +4,7 @@ import re
 import time
 import requests
 import numpy as np
+import base64
 from typing import Dict, Optional, cast
 import librosa
 from loguru import logger
@@ -80,8 +81,11 @@ class HandlerTTS(HandlerBase, ABC):
         # 加载参考音色的tokens
         try:
             ref_voice_full_path = os.path.join(DirectoryInfo.get_project_dir(), self.ref_voice_path)
-            self.ref_tokens = np.load(ref_voice_full_path).tolist()
-            logger.info(f"Loaded reference voice tokens from {ref_voice_full_path}")
+            with open(ref_voice_full_path, "rb") as f:
+                audio_bytes = f.read()
+            self.ref_tokens = base64.b64encode(audio_bytes).decode("utf-8")
+            # self.ref_tokens = np.load(ref_voice_full_path).tolist()
+            # logger.info(f"Loaded reference voice tokens from {ref_voice_full_path}")
         except Exception as e:
             logger.error(f"Failed to load reference voice tokens: {e}")
             raise
@@ -104,7 +108,7 @@ class HandlerTTS(HandlerBase, ABC):
         try:
             payload = {
                 "text": "こんにちは",
-                "references": [context.ref_tokens],
+                "references": [{"audio": context.ref_tokens, "text": "こんにちは、私の名前はヒロですね、よろしくお願いますね"}],
                 "streaming": self.streaming
             }
             response = requests.post(self.api_url, json=payload, timeout=10)
@@ -126,10 +130,9 @@ class HandlerTTS(HandlerBase, ABC):
         try:
             payload = {
                 "text": text,
-                "references": [context.ref_tokens],
+                "references": [{"audio": context.ref_tokens, "text": "こんにちは、私の名前はヒロですね、よろしくお願いますね"}],
                 "streaming": self.streaming
             }
-            
             if self.streaming:
                 # 流式模式
                 response = requests.post(self.api_url, json=payload, stream=True, timeout=30)
