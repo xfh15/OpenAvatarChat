@@ -130,7 +130,7 @@ class HandlerTTS(HandlerBase, ABC):
         return text  # 目前不进行过滤，直接返回原文本
 
     def synthesize_speech_streaming(self, text: str, context: TTSContext, output_definition, speech_id: str):
-        """流式语音合成 - 参考Bailian TTS的实时输出方式"""
+        """流式语音合成 - 修复版本，完整处理音频文件格式"""
         try:
             payload = {
                 "text": text,
@@ -140,38 +140,23 @@ class HandlerTTS(HandlerBase, ABC):
             
             response = requests.post(self.api_url, json=payload, stream=True, timeout=30)
             if response.status_code == 200:
-                audio_buffer = b''
-                chunk_size_threshold = self.sample_rate * 2  # 1秒的音频数据阈值
-                
+                # 收集完整的流式响应数据
+                audio_chunks = []
                 for chunk in response.iter_content(chunk_size=8192):
                     if chunk:
-                        audio_buffer += chunk
-                        
-                        # 当积累足够的音频数据时，立即输出
-                        if len(audio_buffer) >= chunk_size_threshold:
-                            try:
-                                # 尝试解析为PCM数据
-                                output_audio = np.frombuffer(audio_buffer, dtype=np.int16).astype(np.float32) / 32767.0
-                                output_audio = output_audio[np.newaxis, ...]
-                                
-                                # 立即输出音频块
-                                output = DataBundle(output_definition)
-                                output.set_main_data(output_audio)
-                                output.add_meta("avatar_speech_end", False)
-                                output.add_meta("speech_id", speech_id)
-                                context.submit_data(output)
-                                
-                                audio_buffer = b''  # 清空缓冲区
-                                
-                            except Exception as e:
-                                logger.error(f"Failed to parse streaming audio chunk: {e}")
+                        audio_chunks.append(chunk)
                 
-                # 处理剩余的音频数据
-                if audio_buffer:
+                if audio_chunks:
+                    # 合并所有音频数据
+                    complete_audio_data = b''.join(audio_chunks)
+                    
+                    # 使用与非流式模式相同的解析方式，确保音质一致
                     try:
-                        output_audio = np.frombuffer(audio_buffer, dtype=np.int16).astype(np.float32) / 32767.0
+                        # 优先使用librosa处理，与非流式模式保持一致
+                        output_audio = librosa.load(io.BytesIO(complete_audio_data), sr=self.sample_rate)[0]
                         output_audio = output_audio[np.newaxis, ...]
                         
+                        # 输出完整的音频
                         output = DataBundle(output_definition)
                         output.set_main_data(output_audio)
                         output.add_meta("avatar_speech_end", False)
@@ -179,7 +164,22 @@ class HandlerTTS(HandlerBase, ABC):
                         context.submit_data(output)
                         
                     except Exception as e:
-                        logger.error(f"Failed to parse final audio chunk: {e}")
+                        logger.error(f"Failed to load streaming audio with librosa: {e}")
+                        # 备用方案：尝试PCM格式
+                        try:
+                            output_audio = np.frombuffer(complete_audio_data, dtype=np.int16).astype(np.float32) / 32767.0
+                            output_audio = output_audio[np.newaxis, ...]
+                            
+                            output = DataBundle(output_definition)
+                            output.set_main_data(output_audio)
+                            output.add_meta("avatar_speech_end", False)
+                            output.add_meta("speech_id", speech_id)
+                            context.submit_data(output)
+                            
+                        except Exception as e2:
+                            logger.error(f"Failed to parse streaming audio as PCM: {e2}")
+                else:
+                    logger.warning("Received empty streaming response")
                         
             else:
                 logger.error(f"FishSpeech streaming API failed with status {response.status_code}: {response.text}")
