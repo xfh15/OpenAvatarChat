@@ -4,7 +4,6 @@ import re
 import time
 import requests
 import numpy as np
-import base64
 from typing import Dict, Optional, cast
 import librosa
 from loguru import logger
@@ -18,15 +17,17 @@ from chat_engine.data_models.chat_data_type import ChatDataType
 from chat_engine.contexts.session_context import SessionContext
 from chat_engine.data_models.runtime_data.data_bundle import DataBundle, DataBundleDefinition, DataBundleEntry
 from engine_utils.directory_info import DirectoryInfo
-import threading
-import queue
 
 
 class TTSConfig(HandlerBaseConfigModel, BaseModel):
     api_url: str = Field(default="http://localhost:8080/v1/tts")
-    ref_voice_path: str = Field(default="ref_voice/codes_0.npy")
+    ref_voice_path: str = Field(default="ref_voice/ref.wav")
     sample_rate: int = Field(default=24000)
-    streaming: bool = Field(default=False)
+    streaming: bool = Field(default=True)
+    # Additional options to match api_client behavior
+    audio_format: str = Field(default="wav")  # wav | mp3 | flac
+    channels: int = Field(default=1)
+    api_key: Optional[str] = Field(default=os.getenv("FISH_API_KEY"))
 
 
 class TTSContext(HandlerContext):
@@ -37,9 +38,7 @@ class TTSContext(HandlerContext):
         self.input_text = ''
         self.dump_audio = False
         self.audio_dump_file = None
-        self.ref_tokens = None
-        self.streaming_queue = None
-        self.streaming_thread = None
+        self.ref_tokens = None  # will store raw bytes of reference audio
 
 
 class HandlerTTS(HandlerBase, ABC):
@@ -50,6 +49,10 @@ class HandlerTTS(HandlerBase, ABC):
         self.ref_tokens = None
         self.sample_rate = None
         self.streaming = False
+        # New fields for FishSpeech streaming
+        self.audio_format = "wav"
+        self.channels = 1
+        self.api_key: Optional[str] = None
 
     def get_handler_info(self) -> HandlerBaseInfo:
         return HandlerBaseInfo(
@@ -81,17 +84,19 @@ class HandlerTTS(HandlerBase, ABC):
         self.ref_voice_path = config.ref_voice_path
         self.sample_rate = config.sample_rate
         self.streaming = config.streaming
+        self.audio_format = getattr(config, 'audio_format', 'wav')
+        self.channels = getattr(config, 'channels', 1)
+        self.api_key = getattr(config, 'api_key', None)
         
-        # 加载参考音色的tokens
+        # 加载参考音色的原始音频字节（与 api_client 对齐）
         try:
             ref_voice_full_path = os.path.join(DirectoryInfo.get_project_dir(), self.ref_voice_path)
             with open(ref_voice_full_path, "rb") as f:
                 audio_bytes = f.read()
-            self.ref_tokens = base64.b64encode(audio_bytes).decode("utf-8")
-            # self.ref_tokens = np.load(ref_voice_full_path).tolist()
-            # logger.info(f"Loaded reference voice tokens from {ref_voice_full_path}")
+            # 对 FishSpeech 的 msgpack API，"audio" 字段应为原始字节
+            self.ref_tokens = audio_bytes
         except Exception as e:
-            logger.error(f"Failed to load reference voice tokens: {e}")
+            logger.error(f"Failed to load reference voice: {e}")
             raise
 
     def create_context(self, session_context, handler_config=None):
@@ -105,17 +110,52 @@ class HandlerTTS(HandlerBase, ABC):
                                         f"dump_avatar_audio_{context.session_id}_{time.localtime().tm_hour}_{time.localtime().tm_min}.pcm")
             context.audio_dump_file = open(dump_file_path, "wb")
         return context
+
+    def _pack_payload(self, payload: dict) -> tuple[bytes, str]:
+        """Pack payload into MsgPack if available; otherwise raise for clear guidance."""
+        try:
+            import ormsgpack as _mp
+            return _mp.packb(payload), "application/msgpack"
+        except Exception:
+            try:
+                import msgpack as _mp
+                return _mp.packb(payload, use_bin_type=True), "application/msgpack"
+            except Exception:
+                raise RuntimeError("Neither 'ormsgpack' nor 'msgpack' is installed. Please install one to use FishSpeech streaming.")
+
+    def _headers(self, content_type: str):
+        headers = {"content-type": content_type}
+        if self.api_key:
+            headers["authorization"] = f"Bearer {self.api_key}"
+        return headers
+    
+    def _build_request_payload(self, text: str, context: TTSContext, streaming: bool):
+        # 与 api_client.py 的字段对齐
+        return {
+            "text": text,
+            "references": [{
+                "audio": context.ref_tokens if context.ref_tokens is not None else b"",
+                "text": "こんにちは、私の名前はヒロですね、よろしくお願いますね",
+            }],
+            "reference_id": None,
+            "format": self.audio_format,
+            "max_new_tokens": 1024,
+            "chunk_length": 300,
+            "top_p": 0.8,
+            "repetition_penalty": 1.1,
+            "temperature": 0.8,
+            "streaming": streaming,
+            "use_memory_cache": "off",
+            "seed": None,
+        }
     
     def start_context(self, session_context, context: HandlerContext):
         context = cast(TTSContext, context)
-        # 测试API连接
+        # 测试 API 连接（msgpack 请求）
         try:
-            payload = {
-                "text": "こんにちは",
-                "references": [{"audio": context.ref_tokens, "text": "こんにちは、私の名前はヒロですね、よろしくお願いますね"}],
-                "streaming": self.streaming
-            }
-            response = requests.post(self.api_url, json=payload, timeout=10)
+            payload = self._build_request_payload("こんにちは", context, streaming=False)
+            body, ctype = self._pack_payload(payload)
+            response = requests.post(self.api_url, data=body, timeout=10, headers=self._headers(ctype))
             if response.status_code == 200:
                 logger.info("FishSpeech TTS API connection test successful")
             else:
@@ -124,60 +164,80 @@ class HandlerTTS(HandlerBase, ABC):
             logger.error(f"Failed to connect to FishSpeech TTS API: {e}")
 
     def filter_text(self, text):
-        # pattern = r"[^a-zA-Z0-9\u4e00-\u9fff,.\~!?，。！？ ]"  # 匹配不在范围内的字符
-        # filtered_text = re.sub(pattern, "", text)
-        # return filtered_text
-        return text  # 目前不进行过滤，直接返回原文本
+        # 保持原有逻辑：不做过滤
+        return text
 
-    def synthesize_speech_streaming(self, text: str, context: TTSContext, output_definition, speech_id: str):
-        """流式语音合成 - 使用非流式API确保音质一致"""
+    def _submit_chunk(self, pcm_bytes: bytes, context: TTSContext, output_definition, speech_id):
+        if not pcm_bytes:
+            return
+        # 将 int16 PCM 转 float32 [-1, 1]
         try:
-            # 即使配置了streaming，也使用非流式调用以确保音频格式正确
-            output_audio = self.synthesize_speech(text, context)
-            if output_audio is not None:
-                output = DataBundle(output_definition)
-                output.set_main_data(output_audio)
-                output.add_meta("avatar_speech_end", False)
-                output.add_meta("speech_id", speech_id)
-                context.submit_data(output)
-                logger.info(f"Streaming synthesis completed using non-streaming API for text: {text[:50]}...")
-            else:
-                logger.error(f"Failed to synthesize speech for text: {text[:50]}...")
-                
+            samples = np.frombuffer(pcm_bytes, dtype=np.int16).astype(np.float32) / 32767.0
+            if samples.size == 0:
+                return
+            output_audio = samples[np.newaxis, ...]
+            output = DataBundle(output_definition)
+            output.set_main_data(output_audio)
+            output.add_meta("avatar_speech_end", False)
+            output.add_meta("speech_id", speech_id)
+            context.submit_data(output)
         except Exception as e:
-            logger.error(f"Error in streaming synthesis: {e}")
+            logger.error(f"Failed to submit chunk: {e}")
+
+    def _synthesize_streaming(self, text: str, context: TTSContext, output_definition, speech_id):
+        """流式调用 FishSpeech，并边收边推送 DataBundle。"""
+        try:
+            payload = self._build_request_payload(text, context, streaming=True)
+            body, ctype = self._pack_payload(payload)
+            response = requests.post(
+                self.api_url,
+                data=body,
+                stream=True,
+                timeout=60,
+                headers=self._headers(ctype),
+            )
+            if response.status_code != 200:
+                logger.error(f"FishSpeech streaming API request failed with status {response.status_code}: {response.text}")
+                return
+
+            buffer = bytearray()
+            # 约 0.5 秒的块大小（int16 两字节），24000Hz -> 24000 bytes ~ 0.5s
+            threshold_bytes = max(int(self.sample_rate), 4096)
+
+            for chunk in response.iter_content(chunk_size=1024):
+                if not chunk:
+                    continue
+                buffer.extend(chunk)
+                # 保证偶数字节（int16 对齐）
+                while len(buffer) >= threshold_bytes:
+                    flush_size = (threshold_bytes // 2) * 2
+                    pcm = bytes(buffer[:flush_size])
+                    del buffer[:flush_size]
+                    self._submit_chunk(pcm, context, output_definition, speech_id)
+
+            # 剩余不足阈值的也输出一次
+            if len(buffer) > 0:
+                flush_size = (len(buffer) // 2) * 2
+                if flush_size > 0:
+                    self._submit_chunk(bytes(buffer[:flush_size]), context, output_definition, speech_id)
+        except Exception as e:
+            logger.error(f"Error calling FishSpeech streaming API: {e}")
 
     def synthesize_speech(self, text: str, context: TTSContext) -> Optional[np.ndarray]:
-        """调用FishSpeech API生成语音"""
+        """非流式：调用 FishSpeech API 生成整段语音并返回。"""
         try:
-            payload = {
-                "text": text,
-                "references": [{"audio": context.ref_tokens, "text": "こんにちは、私の名前はヒロですね、よろしくお願いますね"}],
-                "streaming": self.streaming
-            }
-            
-            # 非流式模式
-            response = requests.post(self.api_url, json=payload, timeout=30)
+            payload = self._build_request_payload(text, context, streaming=False)
+            body, ctype = self._pack_payload(payload)
+            response = requests.post(self.api_url, data=body, timeout=60, headers=self._headers(ctype))
             if response.status_code == 200:
                 audio_data = response.content
-                try:
-                    output_audio = librosa.load(io.BytesIO(audio_data), sr=self.sample_rate)[0]
-                    output_audio = output_audio[np.newaxis, ...]
-                    return output_audio
-                except Exception as e:
-                    logger.error(f"Failed to load audio with librosa: {e}")
-                    # 尝试其他解析方式
-                    try:
-                        output_audio = np.frombuffer(audio_data, dtype=np.int16).astype(np.float32) / 32767.0
-                        output_audio = output_audio[np.newaxis, ...]
-                        return output_audio
-                    except Exception as e2:
-                        logger.error(f"Failed to parse as PCM data: {e2}")
-                        return None
+                # librosa 可读取多种格式（wav/mp3/flac），重采样到 self.sample_rate
+                output_audio = librosa.load(io.BytesIO(audio_data), sr=self.sample_rate)[0]
+                output_audio = output_audio[np.newaxis, ...]
+                return output_audio
             else:
                 logger.error(f"FishSpeech API request failed with status {response.status_code}: {response.text}")
                 return None
-                
         except Exception as e:
             logger.error(f"Error calling FishSpeech API: {e}")
             return None
@@ -212,16 +272,9 @@ class HandlerTTS(HandlerBase, ABC):
                     if len(sentence.strip()) < 1:
                         continue
                     logger.info(f'Processing sentence: {sentence}')
-                    
                     if self.streaming:
-                        # 流式模式：异步处理以实现实时输出
-                        def stream_process():
-                            self.synthesize_speech_streaming(sentence.strip(), context, output_definition, speech_id)
-                        
-                        stream_thread = threading.Thread(target=stream_process)
-                        stream_thread.start()
+                        self._synthesize_streaming(sentence.strip(), context, output_definition, speech_id)
                     else:
-                        # 非流式模式
                         output_audio = self.synthesize_speech(sentence.strip(), context)
                         if output_audio is not None:
                             output = DataBundle(output_definition)
@@ -233,14 +286,8 @@ class HandlerTTS(HandlerBase, ABC):
             logger.info(f'Processing last sentence: {context.input_text}')
             if context.input_text is not None and len(context.input_text.strip()) > 0:
                 if self.streaming:
-                    # 流式模式：处理最后一句
-                    def stream_final_process():
-                        self.synthesize_speech_streaming(context.input_text.strip(), context, output_definition, speech_id)
-                    
-                    stream_thread = threading.Thread(target=stream_final_process)
-                    stream_thread.start()
+                    self._synthesize_streaming(context.input_text.strip(), context, output_definition, speech_id)
                 else:
-                    # 非流式模式
                     output_audio = self.synthesize_speech(context.input_text.strip(), context)
                     if output_audio is not None:
                         output = DataBundle(output_definition)
