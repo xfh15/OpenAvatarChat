@@ -28,6 +28,7 @@ class TTSConfig(HandlerBaseConfigModel, BaseModel):
     audio_format: str = Field(default="wav")  # wav | mp3 | flac
     channels: int = Field(default=1)
     api_key: Optional[str] = Field(default=os.getenv("FISH_API_KEY"))
+    source_sample_rate: int = Field(default=44100)  # 服务端流式输出的采样率
 
 
 class TTSContext(HandlerContext):
@@ -53,6 +54,7 @@ class HandlerTTS(HandlerBase, ABC):
         self.audio_format = "wav"
         self.channels = 1
         self.api_key: Optional[str] = None
+        self.source_sample_rate: int = 44100
 
     def get_handler_info(self) -> HandlerBaseInfo:
         return HandlerBaseInfo(
@@ -87,6 +89,7 @@ class HandlerTTS(HandlerBase, ABC):
         self.audio_format = getattr(config, 'audio_format', 'wav')
         self.channels = getattr(config, 'channels', 1)
         self.api_key = getattr(config, 'api_key', None)
+        self.source_sample_rate = getattr(config, 'source_sample_rate', 44100)
         
         # 加载参考音色的原始音频字节（与 api_client 对齐）
         try:
@@ -170,11 +173,14 @@ class HandlerTTS(HandlerBase, ABC):
     def _submit_chunk(self, pcm_bytes: bytes, context: TTSContext, output_definition, speech_id):
         if not pcm_bytes:
             return
-        # 将 int16 PCM 转 float32 [-1, 1]
+        # 将 int16 PCM 转 float32 [-1, 1]，并从源采样率重采样到目标采样率
         try:
             samples = np.frombuffer(pcm_bytes, dtype=np.int16).astype(np.float32) / 32767.0
             if samples.size == 0:
                 return
+            if self.sample_rate and self.source_sample_rate and self.sample_rate != self.source_sample_rate:
+                # 重采样到目标采样率（例如 44100 -> 24000）
+                samples = librosa.resample(samples, orig_sr=self.source_sample_rate, target_sr=self.sample_rate)
             output_audio = samples[np.newaxis, ...]
             output = DataBundle(output_definition)
             output.set_main_data(output_audio)
@@ -201,8 +207,8 @@ class HandlerTTS(HandlerBase, ABC):
                 return
 
             buffer = bytearray()
-            # 约 0.5 秒的块大小（int16 两字节），24000Hz -> 24000 bytes ~ 0.5s
-            threshold_bytes = max(int(self.sample_rate), 4096)
+            # 以源采样率估算约 0.5 秒的块大小：int16 两字节 -> 0.5s 样本数 = source_sr/2，对应字节数约为 source_sr
+            threshold_bytes = max(int(self.source_sample_rate), 4096)
 
             for chunk in response.iter_content(chunk_size=1024):
                 if not chunk:
