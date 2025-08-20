@@ -30,28 +30,11 @@ default:
         enabled: True
         module: asr/sensevoice/asr_handler_sensevoice
         model_name: "iic/SenseVoiceSmall"
-      CosyVoice:
-        enabled: False
-        module: tts/bailian_tts/tts_handler_cosyvoice_bailian
-          #module: tts/cosyvoice/tts_handler_cosyvoice
-        voice: "loongtomoya_v2" #"loongtomoka"
-        model_name: "cosyvoice-v2" #"cosyvoice-v2"
-        # api_key: "" # default=os.getenv("DASHSCOPE_API_KEY")
-        #model_name: "iic/CosyVoice2-0.5B" # run cosyvoice in code
-        #spk_id: "搞笑日语男" # use sft model
-        #ref_audio_path: "src/handlers/tts/cosyvoice/CosyVoice/asset/voice3.wav" #use zero_shot model
-        #ref_audio_text: "二人は大歓迎というので、もう大喜びです"
-        sample_rate: 24000
-        process_num: 2
-      Edge_TTS:
-        enabled: false
-        module: tts/edgetts/tts_handler_edgetts
-        voice: "ja-JP-KeitaNeural"
       FishSpeech:
         enabled: true
         module: tts/fish_speech/tts_handler_fish_speech
         api_url: "http://localhost:8080/v1/tts"
-        ref_voice_path: "ref_voice/codes_0.npy"
+        ref_voice_path: "ref_voice/voice2.wav"
         sample_rate: 24000
         streaming: true
       LLM_Bailian:

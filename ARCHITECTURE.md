@@ -2,7 +2,28 @@
 
 ## 概述
 
-OpenAvatarChat 采用了**插件化架构**和**管道式数据流**设计，通过配置驱动的方式实现模块化AI对话系统。系统支持多种模态（语音、视频、文本）的实时处理，并可以灵活组合不同的AI模型。
+OpenAvatarChat 采用了**插件化架构**和**管道式数据流**设计，通过配置驱动的方式实现模块化AI对话系统。系统支持多种模态（语音、视频、文本）的实时处理，并可以灵活组合不同的AI模型.
+
+### 给新人的五分钟上手（TL;DR）
+- 通俗理解：这套系统像“语音助手的流水线”。每个“工位”是一个处理器（VAD/ASR/LLM/TTS/Avatar），盒子上贴着“标签”（ChatDataType），标签决定它会被哪个工位接住。
+- 三步就能看懂并动起来：
+  1) 先看数据怎么流：MIC_AUDIO → HUMAN_AUDIO → HUMAN_TEXT → AVATAR_TEXT → AVATAR_AUDIO → AVATAR_VIDEO。
+  2) 配置里启用/禁用工位：在 config/*.yaml 里按需开关处理器和参数（无需改代码）。
+  3) 出问题先看日志关键词："Registered handlers"、"distributed to"、"processing took"。
+
+### 核心概念速记（记住这些就够用）
+- Handler（处理器）= 流水线工位，干一件事（如识别语音/生成文本）。
+- ChatDataType（数据类型）= 盒子上的标签，决定哪个工位会接手这个盒子。
+- 输入/输出声明 = 工位门口的“接收/产出清单”。
+- 优先级与消费模式 = 排队规则。ONCE 表示只交给优先级最高的一个工位处理。
+- Session Context = 公告板，放全局“是否运行”等共享状态。
+
+### 最小工作流长啥样
+- 麦克风音频（MIC_AUDIO）进 VAD → 得到人声片段（HUMAN_AUDIO）
+- 人声片段进 ASR → 得到文字（HUMAN_TEXT）
+- 文字进 LLM → 得到回复文字（AVATAR_TEXT）
+- 回复文字进 TTS → 得到语音（AVATAR_AUDIO）
+- 语音进 Avatar → 出视频（AVATAR_VIDEO）
 
 ## 核心设计模式
 
@@ -42,6 +63,8 @@ for handler_name, raw_config in self.handler_configs.items():
     # 实例化并注册
     self.register_handler(handler_name, handler_class())
 ```
+
+> 通俗理解：就像在配置单上勾选需要的“工位”，系统会自动把对应的模块搬到流水线上。
 
 ### 2. 基于接口的标准化处理器模式 (Interface-Based Handler Pattern)
 
@@ -98,6 +121,10 @@ def get_handler_detail(self, session_context, context) -> HandlerDetail:
     return HandlerDetail(inputs=inputs, outputs=outputs)
 ```
 
+> 小提示：上面示例中的 `definition` 仅用于说明“输出的定义信息”，实际实现中可按需补充或省略。
+
+> 通俗理解：所有工位的“接口高度统一”，所以可以随时替换同类工位（比如换一个 TTS），流水线仍然能跑。
+
 ### 3. 基于数据类型的自动管道串联 (Type-Based Pipeline Auto-Assembly)
 
 系统根据处理器声明的输入输出数据类型自动构建处理管道，无需手动配置连接关系。
@@ -142,6 +169,8 @@ for input_type, input_info in inputs.items():
     data_sink = DataSink(owner=handler_info.name, sink_queue=handler_env.input_queue, consume_info=input_info)
     sink_list.append(data_sink)  # 自动订阅对应数据类型
 ```
+
+> 通俗理解：工位在“牌子”上写清楚要接哪种标签的盒子，调度员就会自动把匹配的盒子送到它的输入队列里。
 
 ### 4. 多线程异步处理架构 (Multi-threaded Async Processing)
 
@@ -193,6 +222,8 @@ def start(self):
     self.input_pump_thread.start()
 ```
 
+> 通俗理解：每个工位各忙各的，互相通过“盒子队列”传递，流水线能并行，速度就快。
+
 ## 数据流架构
 
 ### 数据分发机制
@@ -227,6 +258,8 @@ def distribute_data(cls, data: ChatData, sinks, outputs):
         if sink.consume_info.input_consume_mode == ChatDataConsumeMode.ONCE:
             break  # 如果设置了ONCE模式，只给第一个处理器
 ```
+
+> 小贴士：有多个同类工位时，默认“广播”给所有；若设置 ONCE，就只给优先级最高的那个（通常优先级数字越小越靠前）。
 
 ## 多处理器并行处理
 
@@ -349,6 +382,23 @@ logger.info(f"Handler {handler_name} processing took {duration}ms")
 - **参数验证**: 使用Pydantic进行配置参数验证
 - **环境变量**: 敏感信息通过环境变量管理
 
+## 术语对照表（Glossary）
+- VAD（Voice Activity Detection）: 语音活动检测，找到人声片段。
+- ASR（Automatic Speech Recognition）: 语音识别，把语音转成文字。
+- LLM（Large Language Model）: 大语言模型，生成回复文字。
+- TTS（Text To Speech）: 文转语，把文字读出来。
+- Avatar: 数字人/视频合成模块，把语音变成视频表现。
+- ChatDataType: 数据的“标签”，用于自动路由。
+- Handler: 处理器/工位，声明它接什么、出什么。
+
+## 常见问题速查（FAQ）
+- 为什么我的处理器没有收到数据？
+  - 检查它声明的输入 ChatDataType 是否与上游输出一致；查看日志里是否“distributed to 0 handlers”。
+- 设置了 ONCE 为什么好像还是多个都收到了？
+  - ONCE 只会把数据交给优先级最高的处理器，确认优先级设置（数字越小优先级越高）。
+- 我能不能只改配置就换模型？
+  - 可以，处理器遵循统一接口。只需在 YAML 里切换 module 和参数。
+
 ## 总结
 
 OpenAvatarChat的架构设计具有以下优势：
@@ -359,4 +409,4 @@ OpenAvatarChat的架构设计具有以下优势：
 4. **高并发**: 多线程异步处理保证实时性能
 5. **易扩展**: 标准化接口让新功能开发变得简单
 
-这种设计模式特别适合构建复杂的AI对话系统，能够有效应对不同场景的需求变化。
+这种设计模式特别适合构建复杂的AI对话系统，能够有效应对不同场景的需求变化.
