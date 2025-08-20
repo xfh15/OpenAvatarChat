@@ -19,6 +19,9 @@
 [submodule "src/handlers/avatar/musetalk/MuseTalk"]
 	path = src/handlers/avatar/musetalk/MuseTalk
 	url = https://github.com/TMElyralab/MuseTalk.git
+[submodule "src/handlers/client/rtc_client/frontend"]
+	path = src/handlers/client/rtc_client/frontend
+	url = https://github.com/HumanAIGC-Engineering/OpenAvatarChat-WebUI.git
 [submodule "src/handlers/tts/fish_speech/fish-speech"]
 	path = src/handlers/tts/fish_speech/fish-speech
 	url = https://github.com/fishaudio/fish-speech.git

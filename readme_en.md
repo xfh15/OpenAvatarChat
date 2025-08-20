@@ -20,7 +20,9 @@
 ## 📢 News
 
 ### Changelog
-
+- [2025.08.12] ⭐️⭐️⭐️ 版本 0.5.0发布:
+  - Modified to a separated frontend and backend version. The frontend repository[OpenAvatarChat-WebUI](https://github.com/HumanAIGC-Engineering/OpenAvatarChat-WebUI)has been added to facilitate custom frontend interfaces and expand interactions.
+  - Added basic support for calling dify, currently only supporting the chatflow version.
 - [2025.06.12] ⭐️⭐️⭐️ Version 0.4.1 Released:
   - Added support for [MuseTalk](https://github.com/TMElyralab/MuseTalk), including customizable videos for personalized avatars.
   - Released 50 new LiteAvatar styles featuring a variety of professional roles. Please refer to [LiteAvatarGallery](https://modelscope.cn/models/HumanAIGC-Engineering/LiteAvatarGallery).
@@ -105,15 +107,17 @@ Frequently asked questions encountered during the course of the project can be f
   - [Pre-set Modes](#pre-set-modes)
 - [🚀 Get Started](#-get-started)
   - [Select a config](#select-a-config)
-    - [chat\_with\_gs.yaml](#chat_with_gsyaml)
+    - [chat\_with\_lam.yaml](#chat_with_lamyaml)
       - [Used Handlers](#used-handlers)
     - [chat\_with\_minicpm.yaml](#chat_with_minicpmyaml)
       - [Used Handlers](#used-handlers-1)
     - [chat\_with\_openai\_compatible.yaml](#chat_with_openai_compatibleyaml)
       - [Used Handlers](#used-handlers-2)
+    - [chat\_with\_openai\_compatible\_edge\_tts.yaml](#chat_with_openai_compatible_edge_ttsyaml)
     - [chat\_with\_openai\_compatible\_bailian\_cosyvoice.yaml](#chat_with_openai_compatible_bailian_cosyvoiceyaml)
       - [Used Handlers](#used-handlers-3)
-    - [chat\_with\_openai\_compatible\_edge\_tts.yaml](#chat_with_openai_compatible_edge_ttsyaml)
+    - [chat\_with\_openai\_compatible\_bailian\_cosyvoice\_musetalk.yaml](#chat_with_openai_compatible_bailian_cosyvoice_musetalkyaml)
+    - [Used Handlers](#used-handlers-4)
   - [Local Execution](#local-execution)
     - [UV Installation](#uv-installation)
     - [Dependency Installation](#dependency-installation)
@@ -132,13 +136,19 @@ Frequently asked questions encountered during the course of the project can be f
   - [CosyVoice Local Inference Handler](#cosyvoice-local-inference-handler)
   - [Edge TTS Handler](#edge-tts-handler)
   - [LiteAvatar Avatar Handler](#liteavatar-avatar-handler)
+    - [Model Dependencies](#model-dependencies)
+  - [Dify Chatflow Handler](#dify-chatflow-handler)
+    - [Configuration](#configuration)
   - [LAM Avatar Driver Handler](#lam-avatar-driver-handler)
     - [Models used](#models-used-1)
   - [MuseTalk Avatar Handler](#musetalk-avatar-handler)
+    - [Model Dependencies](#model-dependencies-1)
+    - [Configuration](#configuration-1)
+    - [Run](#run-1)
 - [Optional Deployment](#optional-deployment)
   - [Prepare ssl certificates](#prepare-ssl-certificates)
   - [TURN Server](#turn-server)
-- [Configuration](#configuration)
+- [Configuration](#configuration-2)
 - [Community Thanks](#community-thanks)
 - [Star History](#star-history)
 - [Citation](#citation)
@@ -174,6 +184,7 @@ In our tests, using a PC equipped with an i9-13900KF processor and Nvidia RTX 40
 | Type | Open Source Project | GitHub Link | Model Link |
 |----------|-------------------------------------|---|---|
 | RTC      | HumanAIGC-Engineering/gradio-webrtc |[<img src="https://img.shields.io/badge/github-white?logo=github&logoColor=black"/>](https://github.com/HumanAIGC-Engineering/gradio-webrtc)||
+| WebUI      | HumanAIGC-Engineering/OpenAvatarChat-WebUI |[<img src="https://img.shields.io/badge/github-white?logo=github&logoColor=black"/>](https://github.com/HumanAIGC-Engineering/OpenAvatarChat-WebUI)||
 | VAD      | snakers4/silero-vad                 |[<img src="https://img.shields.io/badge/github-white?logo=github&logoColor=black"/>](https://github.com/snakers4/silero-vad)||
 | LLM      | OpenBMB/MiniCPM-o                   |[<img src="https://img.shields.io/badge/github-white?logo=github&logoColor=black"/>](https://github.com/OpenBMB/MiniCPM-o)| [🤗](https://huggingface.co/openbmb/MiniCPM-o-2_6)&nbsp;&nbsp;[<img src="./assets/images/modelscope_logo.png" width="20px"></img>](https://modelscope.cn/models/OpenBMB/MiniCPM-o-2_6) |
 | LLM-int4 | OpenBMB/MiniCPM-o                   |[<img src="https://img.shields.io/badge/github-white?logo=github&logoColor=black"/>](https://github.com/OpenBMB/MiniCPM-o)|[🤗](https://huggingface.co/openbmb/MiniCPM-o-2_6-int4)&nbsp;&nbsp;[<img src="./assets/images/modelscope_logo.png" width="20px"></img>](https://modelscope.cn/models/OpenBMB/MiniCPM-o-2_6-int4)|
@@ -188,7 +199,7 @@ In our tests, using a PC equipped with an i9-13900KF processor and Nvidia RTX 40
 
 | CONFIG Name                                          | ASR        |    LLM    |    TTS    | AVATAR       |
 |------------------------------------------------------|------------|:---------:|:---------:|--------------|
-| chat_with_gs.yaml                                    | SenseVoice |    API    |   API     | LAM          |
+| chat_with_lam.yaml                                   | SenseVoice |    API    |   API     | LAM          |
 | chat_with_minicpm.yaml                               | MiniCPM-o  | MiniCPM-o | MiniCPM-o | lite-avatar  |
 | chat_with_openai_compatible.yaml                     | SenseVoice |    API    | CosyVoice | lite-avatar  |
 | chat_with_openai_compatible_edge_tts.yaml            | SenseVoice |    API    | edgetts   | lite-avatar  |
@@ -205,7 +216,7 @@ Before installing and deploying the corresponding mode, please refer to the **in
 ### Select a config
 The functionalities of OpenAvatarChat will follow the config specified during startup. We provided several sample config files under the config folder.
 
-#### chat_with_gs.yaml
+#### chat_with_lam.yaml
 This config uses [LAM](https://github.com/aigc3d/LAM) generated gaussion splatting asset as client-side rendered avatar. With api based openai compatible llm and tts from Bailian platform, only vad and asr handlers are run locally, so this is the lightest config choice, which supports multiple connection on single service.
 
 ##### Used Handlers
@@ -366,9 +377,9 @@ LamClient:
 
 ### OpenAI Compatible LLM Handler
 Local llm handler has relatively high startup requirements. If you already have an available LLM api_key, you can start it this way to experience interactive digital humans.
-Modify the corresponding config, such as the LLM_Bailian configuration in config/chat_with_openai_compatible.yaml. The invocation method in the code uses the standard OpenAI approach, which should theoretically be compatible with similar setups.
+Modify the corresponding config, such as the LLMOpenAICompatible configuration in config/chat_with_openai_compatible.yaml. The invocation method in the code uses the standard OpenAI approach, which should theoretically be compatible with similar setups.
 ```yaml
-LLM_Bailian: 
+LLMOpenAICompatible: 
   model_name: "qwen-plus"
   system_prompt: "You are an AI digital human. Respond to my questions briefly and insert punctuation where appropriate."
   api_url: 'https://dashscope.aliyuncs.com/compatible-mode/v1'
@@ -472,6 +483,18 @@ LiteAvatar is integarted to provide 2D avatar feature. Currenty, 100 avatar asse
 bash scripts/download_liteavatar_weights.sh
 ```
 
+### Dify Chatflow Handler 
+The project currently integrates Dify's Chatflow. Users can create a Chatflow in Dify, and after filling in the generated Chatflow application's api_url and api_key, they can use Dify's Chatflow for conversation.
+```yaml
+ Dify:
+      enabled: True
+      module: llm/dify/llm_handler_dify
+      enable_video_input: False # Allow camera input, ensure application supports vision and accepts file inputs
+      api_key: '' #your dify api key
+      api_url: 'http://localhost/v1' # your dify api url
+ 
+```
+
 #### Configuration
 LiteAvatar can be run on CPU as well as GPU. If other GPU heavy handlers are used, let liteavatar run on cpu may be a good choice.
 
@@ -522,14 +545,15 @@ The project currently integrates the latest MuseTalk 1.5 (previous versions are 
 #### Configuration
 
 * **Avatar selection:** MuseTalk source includes two default avatars. You can select by modifying the `avatar_video_path` parameter. The system will prepare data on first load and cache it for subsequent runs. You can force regeneration by setting `force_create_avatar: true`. The `avatar_model_dir` parameter specifies where to save avatar data (default: `models/musetalk/avatar_model`).
-* **Frame rate:** Although MuseTalk documentation claims 30fps on V100, our adaptation (referencing `realtime_inference.py`) does not reach this in practice. We recommend `fps: 20`, but you can adjust based on your GPU. If you see the warning `[IDLE_FRAME] Inserted idle during speaking` in logs, it means actual inference fps is lower than set fps. Increasing `batch_size` can improve throughput, but too large a batch may slow first-frame response.
+* **Frame rate:** Although MuseTalk documentation claims 30fps on V100, our adaptation (referencing `realtime_inference.py`) does not reach this in practice. We recommend `fps: 20`, but you can adjust based on your GPU. If you see the warning `[IDLE_FRAME] Inserted idle during speaking` in logs, it means actual inference fps is lower than set fps. 
+* **Batch size:** Increasing `batch_size` can improve throughput, but too large a batch may slow first-frame response. The minimum batch_size for inference is 2. If you set it to 1, an error will appear in the log`[IDLE_FRAME] 1 validation error for AvatarMuseTalkConfig，batch_size - Input should be greater than or equal to 2 [type=greater_than_equal, input_value=1, input_type=int]`  
 
 **Sample config:**
 ```yaml
 Avatar_MuseTalk:
   module: avatar/musetalk/avatar_handler_musetalk
   fps: 20  # Video frame rate
-  batch_size: 2  # Batch processing frame count
+  batch_size: 2  # Batch processing frame count, must be greater than 2
   avatar_video_path: "src/handlers/avatar/musetalk/MuseTalk/data/video/sun.mp4"  # Initialization video path
   avatar_model_dir: "models/musetalk/avatar_model"  # Default avatar model directory
   force_create_avatar: false  # Whether to force regenerate digital human data
@@ -663,10 +687,10 @@ Current implemented handler provide following configs:
 
 | Parameter                  | Default Value | Description                                                                 |
 |----------------------------|---------------|-----------------------------------------------------------------------------|
-| LLM_Bailian.model_name     | qwen-plus     | The API for Bailian's testing environment. Free quotas can be obtained from [Bailian](https://bailian.console.aliyun.com/#/home). |
-| LLM_Bailian.system_prompt  |               | Default system prompt                                                       |
-| LLM_Bailian.api_url        |               | API URL for the model                                                      |
-| LLM_Bailian.api_key        |               | API key for the model                                                      |
+| LLMOpenAICompatible.model_name     | qwen-plus     | The API for Bailian's testing environment. Free quotas can be obtained from [Bailian](https://bailian.console.aliyun.com/#/home). |
+| LLMOpenAICompatible.system_prompt  |               | Default system prompt                                                       |
+| LLMOpenAICompatible.api_url        |               | API URL for the model                                                      |
+| LLMOpenAICompatible.api_key        |               | API key for the model                                                      |
 
 ---
 
