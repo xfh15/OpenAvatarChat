@@ -50,12 +50,13 @@ default:
         api_key: "ollama" # default=os.getenv("DASHSCOPE_API_KEY")
       AvatarMusetalk:
         module: avatar/musetalk/avatar_handler_musetalk
-        fps: 16  # Video frame rate
-        batch_size: 8  # Batch processing frame count
-        avatar_video_path: "src/handlers/avatar/musetalk/MuseTalk/data/video/videoth02.mp4"  
+        fps: 20  # Video frame rate
+        batch_size: 2  # Batch processing frame count
+        avatar_video_path: "src/handlers/avatar/musetalk/MuseTalk/data/video/sun.mp4"  
         # Initialization video path
         avatar_model_dir: "models/musetalk/avatar_model"  # Default avatar model directory
         force_create_avatar: false  # Whether to force regenerate digital human data
         debug: false  # Whether to enable debug mode
+        multi_thread_inference: true  # true: use 2 threads to inference (unet, vae), false: use single-thread to inference
         # debug_save_handler_audio: true  # Whether to save audio frames
         # debug_replay_speech_id: "speech-d9o18xrugl6-1"  # Speech ID for replay
