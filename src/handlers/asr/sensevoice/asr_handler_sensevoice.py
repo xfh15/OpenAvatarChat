@@ -184,14 +184,17 @@ class HandlerASR(HandlerBase, ABC):
                 if not wake_word_detected:
                     context.shared_states.enable_vad = True
                     return
-            else:
-                # 如果处于唤醒状态，更新活动时间
-                context.last_activity_time = time.time()
         
         if len(output_text) == 0:
             # 如果 ASR 识别结果为空，则需要重新开启vad
             context.shared_states.enable_vad = True
             return
+        
+        # 只有在有有效识别结果时才更新活动时间和检查休眠
+        if context.config.enable_wake_word and context.wake_status == "AWAKE":
+            # 有有效语音识别结果，更新活动时间
+            context.last_activity_time = time.time()
+            logger.debug(f"更新活动时间: {context.last_activity_time}")
         output = DataBundle(output_definition)
         output.set_main_data(output_text)
         output.add_meta('human_text_end', False)
