@@ -30,6 +30,10 @@ default:
         enabled: True
         module: asr/sensevoice/asr_handler_sensevoice
         model_name: "iic/SenseVoiceSmall"
+        # 关键词唤醒配置（在ASR中实现）
+        enable_wake_word: true
+        wake_words: ["你好", "小助手", "唤醒", "hello"]
+        sleep_timeout: 30.0
       FishSpeech:
         enabled: true
         module: tts/fish_speech/tts_handler_fish_speech

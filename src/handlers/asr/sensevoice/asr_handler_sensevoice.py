@@ -1,6 +1,7 @@
 
 
 import re
+import time
 from typing import Dict, Optional, cast
 from loguru import logger
 import numpy as np
@@ -23,6 +24,10 @@ from engine_utils.general_slicer import SliceContext, slice_data
 
 class ASRConfig(HandlerBaseConfigModel, BaseModel):
     model_name: str = Field(default="iic/SenseVoiceSmall")
+    # 关键词唤醒配置
+    enable_wake_word: bool = Field(default=False)
+    wake_words: list = Field(default=["你好", "小助手", "唤醒"])
+    sleep_timeout: float = Field(default=30.0)
 
 
 class ASRContext(HandlerContext):
@@ -44,6 +49,9 @@ class ASRContext(HandlerContext):
                                           "dump_talk_audio.pcm")
             self.audio_dump_file = open(dump_file_path, "wb")
         self.shared_states = None
+        # 关键词唤醒状态
+        self.wake_status = "SLEEPING"  # SLEEPING, AWAKE
+        self.last_activity_time = time.time()
 
 
 class HandlerASR(HandlerBase, ABC):
@@ -94,7 +102,16 @@ class HandlerASR(HandlerBase, ABC):
         if not isinstance(handler_config, ASRConfig):
             handler_config = ASRConfig()
         context = ASRContext(session_context.session_info.session_id)
+        context.config = handler_config
         context.shared_states = session_context.shared_states
+        
+        # 初始化唤醒状态
+        if handler_config.enable_wake_word:
+            context.wake_status = "SLEEPING"
+        else:
+            context.wake_status = "AWAKE"
+        context.last_activity_time = time.time()
+        
         return context
     
     def start_context(self, session_context, handler_context):
@@ -143,6 +160,34 @@ class HandlerASR(HandlerBase, ABC):
         logger.info(res)
         context.output_audios.clear()
         output_text = re.sub(r"<\|.*?\|>", "", res[0]['text'])
+        
+        # 关键词唤醒检测
+        if context.config.enable_wake_word:
+            # 检查是否需要休眠（30秒无活动）
+            current_time = time.time()
+            if context.wake_status == "AWAKE" and (current_time - context.last_activity_time) > context.config.sleep_timeout:
+                context.wake_status = "SLEEPING"
+                logger.info("系统进入休眠状态")
+            
+            # 如果处于休眠状态，检测关键词
+            if context.wake_status == "SLEEPING":
+                wake_word_detected = False
+                for wake_word in context.config.wake_words:
+                    if wake_word in output_text:
+                        logger.info(f"检测到关键词: {wake_word}")
+                        context.wake_status = "AWAKE"
+                        context.last_activity_time = time.time()
+                        wake_word_detected = True
+                        break
+                
+                # 如果处于休眠状态且未检测到关键词，不输出结果
+                if not wake_word_detected:
+                    context.shared_states.enable_vad = True
+                    return
+            else:
+                # 如果处于唤醒状态，更新活动时间
+                context.last_activity_time = time.time()
+        
         if len(output_text) == 0:
             # 如果 ASR 识别结果为空，则需要重新开启vad
             context.shared_states.enable_vad = True
