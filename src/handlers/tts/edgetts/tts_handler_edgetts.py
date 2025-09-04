@@ -94,9 +94,9 @@ class HandlerTTS(HandlerBase, ABC):
         edge_tts.Communicate(text="测试音频启动", voice=self.voice)
 
     def filter_text(self, text):
-        pattern = r"[^a-zA-Z0-9\u4e00-\u9fff,.\~!?，。！？ ]"  # 匹配不在范围内的字符
-        filtered_text = re.sub(pattern, "", text)
-        return filtered_text
+        # pattern = r"[^a-zA-Z0-9\u4e00-\u9fff,.\~!?，。！？ ]"  # 匹配不在范围内的字符
+        # filtered_text = re.sub(pattern, "", text)
+        return text
 
     def handle(self, context: HandlerContext, inputs: ChatData,
                output_definitions: Dict[ChatDataType, HandlerDataInfo]):
