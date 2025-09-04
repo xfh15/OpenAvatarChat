@@ -1,0 +1,78 @@
+default:
+  logger:
+    log_level: "DEBUG"
+  service:
+    host: "0.0.0.0"
+    port: 8282
+    cert_file: "ssl_certs/fullchain.pem"
+    cert_key: "ssl_certs/privkey.pem"
+  chat_engine:
+    model_root: "models"
+    handler_search_path:
+      - "src/handlers"
+    handler_configs:
+      RtcClient:
+        #turn_config:
+        #  turn_provider: "turn_server"
+        #  urls: ["turn:ai.dragonproudsky.com:3478"]
+        #  username: "openavatar"
+        #  credential: "supersecret123"
+        module: client/rtc_client/client_handler_rtc
+        concurrent_limit: 1
+      SileroVad:
+        module: vad/silerovad/vad_handler_silero
+        speaking_threshold: 0.5
+        start_delay: 2048
+        end_delay: 5000
+        buffer_look_back: 5000
+        speech_padding: 512
+      SenseVoice:
+        enabled: True
+        module: asr/sensevoice/asr_handler_sensevoice
+        model_name: "iic/SenseVoiceSmall"
+        # 关键词唤醒配置（在ASR中实现）
+        enable_wake_word: true
+        wake_words: ["こんにちは", "もしもし"]
+        sleep_timeout: 120.0
+      FishSpeech:
+        enabled: false
+        module: tts/fish_speech/tts_handler_fish_speech
+        api_url: "http://localhost:8080/v1/tts"
+        ref_voice_path: "ref_voice/voice2.wav"
+        sample_rate: 24000
+        streaming: true
+      Edge_TTS:
+        enabled: true
+        module: tts/edgetts/tts_handler_edgetts
+        voice: "ja-JP-AoiNeural" # "ja-JP-KeitaNeural"        
+      LLMOpenAICompatible:
+        enabled: True
+        module: llm/openai_compatible/llm_handler_openai_compatible
+        model_name: "qwen-plus"
+        enable_video_input: False # ensure your llm support video input
+        history_length: 20
+        # model_name: "gemini-2.0-flash"
+        system_prompt: "# 指令 (Mandate)
+リアルタイム音声対話に特化した、プロフェッショナルな日本語ビジネスAIアシスタント。
+# 行動原則 (Core Principles)
+1.  **即時性**: ユーザーの発話を瞬時に理解し、思考遅延なく応答する。
+2.  **簡潔明瞭**: 結論を先に述べ、短く、平易なビジネス日本語（敬語）で話す。
+3.  **プロフェッショナリズム**: 常に冷静、丁寧、協力的な態度を維持する。
+# 禁止事項 (Prohibitions)
+*   長考、曖昧な表現、冗長な言い回し、不適切な敬語。"
+        api_url: "https://dashscope.aliyuncs.com/compatible-mode/v1"
+        # api_url: 'http://127.0.0.1:11434/v1' # ollama
+        # api_url: 'https://generativelanguage.googleapis.com/v1beta/openai/'
+        # api_key: "" # default=os.getenv("DASHSCOPE_API_KEY")
+      AvatarMusetalk:
+        module: avatar/musetalk/avatar_handler_musetalk
+        fps: 20  # Video frame rate
+        batch_size: 2  # Batch processing frame count
+        avatar_video_path: "src/handlers/avatar/musetalk/MuseTalk/data/video/sun.mp4"  
+        # Initialization video path
+        avatar_model_dir: "models/musetalk/avatar_model"  # Default avatar model directory
+        force_create_avatar: false  # Whether to force regenerate digital human data
+        debug: false  # Whether to enable debug mode
+        multi_thread_inference: true  # true: use 2 threads to inference (unet, vae), false: use single-thread to inference
+        # debug_save_handler_audio: true  # Whether to save audio frames
+        # debug_replay_speech_id: "speech-d9o18xrugl6-1"  # Speech ID for replay
