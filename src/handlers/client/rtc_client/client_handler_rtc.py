@@ -105,7 +105,7 @@ class RtcClientSessionDelegate(ClientSessionDelegate):
 
 
 class ClientRtcConfigModel(HandlerBaseConfigModel, BaseModel):
-    connection_ttl: int = Field(default=900)
+    connection_ttl: Optional[int] = Field(default=900)
     concurrent_limit: int = Field(default=1)
     turn_config: Optional[Dict] = Field(default=None)
 
