@@ -5,4 +5,5 @@ requires-python = ">=3.10, <3.13"
 dependencies = [
     "requests>=2.25.0",
     "numpy>=1.21.0",
+    "fish_audio_sdk",
 ]
