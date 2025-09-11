@@ -97,3 +97,8 @@ default:
         multi_thread_inference: true  # true: use 2 threads to inference (unet, vae), false: use single-thread to inference
         # debug_save_handler_audio: true  # Whether to save audio frames
         # debug_replay_speech_id: "speech-d9o18xrugl6-1"  # Speech ID for replay
+      Dify:
+        enabled: false
+        module: llm/dify/llm_handler_dify
+        api_key: app-2wuVTp6XRNx5Ob9jCmbOSql1
+        api_url: 'http://localhost/v1'
