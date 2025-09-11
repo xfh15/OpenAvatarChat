@@ -121,22 +121,19 @@ export const useVideoChatStore = defineStore('videoChatStore', {
             console.log('no audio permission')
             this.hasMicPermission = false
           })
-        await navigator.mediaDevices
-          .getUserMedia({
-            video: true,
-          })
-          .catch(() => {
-            console.log('no video permission')
-            this.hasCameraPermission = false
-          })
+        // 屏蔽摄像头权限请求
+        // await navigator.mediaDevices
+        //   .getUserMedia({
+        //     video: true,
+        //   })
+        //   .catch(() => {
+        //     console.log('no video permission')
+        //     this.hasCameraPermission = false
+        //   })
         const devices = await getDevices()
         this.devices = devices
         console.log('🚀 ~ access_webcam ~ devices:', devices)
-        const videoDeviceId =
-          this.selectedVideoDevice &&
-          devices.some((device) => device.deviceId === this.selectedVideoDevice?.deviceId)
-            ? this.selectedVideoDevice.deviceId
-            : ''
+        const videoDeviceId = ''  // 不使用摄像头
         const audioDeviceId =
           this.selectedAudioDevice &&
           devices.some((device) => device.deviceId === this.selectedAudioDevice?.deviceId)
@@ -240,16 +237,13 @@ export const useVideoChatStore = defineStore('videoChatStore', {
         devices.some((device) => {
           return device.kind === 'audioinput' && device.deviceId
         }) && this.hasMicPermission
-      this.hasCamera =
-        devices.some((device) => device.kind === 'videoinput' && device.deviceId) &&
-        this.hasCameraPermission
+      // 屏蔽摄像头检测
+      this.hasCamera = false
       await getStream(
         audioDeviceId && audioDeviceId !== 'default'
           ? { deviceId: { exact: audioDeviceId } }
           : this.hasMic,
-        videoDeviceId && videoDeviceId !== 'default'
-          ? { deviceId: { exact: videoDeviceId } }
-          : this.hasCamera,
+        false,  // 不请求视频流
         this.trackConstraints
       )
         .then(async (local_stream) => {
@@ -263,13 +257,12 @@ export const useVideoChatStore = defineStore('videoChatStore', {
           )
           used_devices.forEach((device_id) => {
             const used_device = devices.find((device) => device.deviceId === device_id)
-            if (used_device && used_device?.kind.includes('video')) {
-              this.selectedVideoDevice = used_device
-            } else if (used_device && used_device?.kind.includes('audio')) {
+            // 屏蔽视频设备选择逻辑
+            if (used_device && used_device?.kind.includes('audio')) {
               this.selectedAudioDevice = used_device
             }
           })
-          !this.selectedVideoDevice && (this.selectedVideoDevice = this.availableVideoDevices[0])
+          // 不设置默认视频设备
         })
         .catch((e) => {
           console.error('image.no_webcam_support', e)
@@ -284,6 +277,7 @@ export const useVideoChatStore = defineStore('videoChatStore', {
           if (!this.stream.getTracks().find((item) => item.kind === 'audio')) {
             this.stream.addTrack(createSimulatedAudioTrack())
           }
+          // 始终添加模拟视频轨道，因为我们不使用真实摄像头
           if (!this.stream.getTracks().find((item) => item.kind === 'video')) {
             this.stream.addTrack(createSimulatedVideoTrack())
           }
@@ -295,7 +289,7 @@ export const useVideoChatStore = defineStore('videoChatStore', {
             node.muted = true
             node?.play()
           }
-          // 默认关闭摄像头
+          // 默认关闭摄像头（实际上是模拟的视频轨道）
           this.stream.getTracks().forEach((track) => {
             if (track.kind.includes('video')) track.enabled = false
           })

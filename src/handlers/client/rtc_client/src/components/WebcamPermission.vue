@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useVideoChatStore } from '@/store';
 import { useVisionStore } from '@/store/vision';
-import { VideoCameraOutlined } from '@ant-design/icons-vue';
+import { AudioOutlined } from '@ant-design/icons-vue';
 import { onMounted } from 'vue';
 
 const emits = defineEmits(['click']);
@@ -11,7 +11,7 @@ const accessClick = async () => {
   videoChatState.accessDevice();
 };
 onMounted(() => {
-  // accessClick(); //自动获取权限
+   accessClick(); //自动获取权限
 });
 
 const text = 'マイクへのアクセスを許可してください';
@@ -20,7 +20,7 @@ const text = 'マイクへのアクセスを許可してください';
 <template>
   <div class="access-wrap" @click="accessClick">
     <span class="icon-wrap">
-      <VideoCameraOutlined />
+      <AudioOutlined />
     </span>
     {{ text }}
   </div>
